@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "generated_at": "2026-05-05T00:00:00Z",
+  "_comment": "Central school directory consumed by the Teacher Codex mobile app's onboarding/bootstrap flow. The app fetches this file from https://directory.teachercodex.app/schools.json, lets the teacher pick their school by name/code, then cross-checks the entry against the school's own /.well-known/teacher-codex.json before storing the API base + cert pins.",
+  "schools": [
+    {
+      "school_id": "kps-rewari",
+      "name": "KPS Rewari",
+      "code": "kps-rewari",
+      "api_base": "https://schoolcodex.kpsrewari.org/api/v1/",
+      "well_known": "https://schoolcodex.kpsrewari.org/.well-known/teacher-codex.json",
+      "cert_pins": [
+        "sha256/REPLACE_WITH_CURRENT_LEAF_PIN",
+        "sha256/REPLACE_WITH_NEXT_LEAF_PIN"
+      ],
+      "logo_url": "https://schoolcodex.kpsrewari.org/static/logo.png",
+      "min_app_version": "1.0.0"
+    }
+  ]
+}
