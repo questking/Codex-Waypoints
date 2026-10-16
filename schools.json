@@ -1,7 +1,8 @@
 {
-  "version": 1,
-  "generated_at": "2026-09-02T00:00:00Z",
-  "_comment": "Central school directory consumed by the Teacher Codex mobile app's onboarding/bootstrap flow. The app fetches this file from https://directory.teachercodex.app/schools.json, lets the teacher pick their school by name/code, then cross-checks the entry against the school's own /.well-known/teacher-codex.json before storing the API base + cert pins.",
+  "version": 2,
+  "generated_at": "2026-10-16T00:00:00Z",
+  "_comment": "Central school directory consumed by every Codex mobile app's onboarding/bootstrap flow. Each app fetches this file from https://waypoints.schoolcodex.com/schools.json, lets the user pick their school by name/code, then cross-checks the entry against that school's own /.well-known/<app>-codex.json before storing the API base + cert pins.",
+  "_schema_v2": "v2 is ADDITIVE and backward compatible on purpose. `well_known` and `min_app_version` keep their v1 TYPES (plain strings, teacher values) because a shipped app parses them as strings; do not turn either into a per-app object. Per-app values live in the `well_known_by_app` / `min_app_version_by_app` maps, which older clients ignore. A client reads its own key from the map and falls back to the flat field. See README.md.",
   "schools": [
     {
       "school_id": "kps-rewari",
@@ -9,9 +10,18 @@
       "code": "kps-rewari",
       "api_base": "https://schoolcodex.kpsrewari.org/",
       "well_known": "https://schoolcodex.kpsrewari.org/.well-known/teacher-codex.json",
+      "well_known_by_app": {
+        "teacher": "https://schoolcodex.kpsrewari.org/.well-known/teacher-codex.json",
+        "parent": "https://schoolcodex.kpsrewari.org/.well-known/parent-codex.json"
+      },
       "cert_pins": [],
       "logo_url": "https://schoolcodex.kpsrewari.org/media/school_logos/logo_md.png",
-      "min_app_version": "1.0.0"
+      "min_app_version": "1.0.0",
+      "min_app_version_by_app": {
+        "teacher": "1.0.0",
+        "parent": "1.0.0"
+      },
+      "apps": ["teacher", "parent"]
     },
     {
       "school_id": "demo-school",
@@ -19,10 +29,19 @@
       "code": "demo",
       "api_base": "https://demo.schoolcodex.com/",
       "well_known": "https://demo.schoolcodex.com/.well-known/teacher-codex.json",
+      "well_known_by_app": {
+        "teacher": "https://demo.schoolcodex.com/.well-known/teacher-codex.json",
+        "parent": "https://demo.schoolcodex.com/.well-known/parent-codex.json"
+      },
       "cert_pins": [],
       "logo_url": "",
       "min_app_version": "1.0.0",
-      "_comment": "Sandbox instance (deploy/containers/): app-store reviewers + teacher training. Fictitious data only. Sign-in = OTP_REVIEW_PHONE/CODE from that server's settings.json."
+      "min_app_version_by_app": {
+        "teacher": "1.0.0",
+        "parent": "1.0.0"
+      },
+      "apps": ["teacher", "parent"],
+      "_comment": "Sandbox instance for app-store review and staff training. Fictitious data only — not a real school."
     }
   ]
 }
