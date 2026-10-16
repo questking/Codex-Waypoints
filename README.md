@@ -1,91 +1,153 @@
 # Codex Waypoints — Shared School Directory
 
-The single source of truth for "which schools exist and where do their
-APIs live". Consumed by every Codex mobile app — currently **Teacher
-Codex**, planned: **Parent Codex** and any future role-specific app.
+The single source of truth for "which schools exist and where do their APIs
+live". Consumed by every Codex mobile app — **Teacher Codex** today,
+**Parent Codex** next, and any future role-specific app.
 
-> **This folder is staging.** The artifacts here will be migrated to a
-> standalone GitHub repo (`codex-waypoints`) hosted on Cloudflare Pages
-> at `directory.codex.app` (or whatever final hostname is chosen — see
-> [Hostname](#hostname-decision-deferred) below). Once the standalone
-> repo is live, this folder can be deleted from the main monorepo.
+Served at **<https://waypoints.schoolcodex.com/schools.json>** from Cloudflare
+Pages. Every Codex app has that URL hardcoded.
 
----
-
-## Why a separate repo / a single shared directory?
-
-- **One file, many apps.** Both Teacher Codex and Parent Codex (and any
-  future Codex app) need to answer the same first-screen question — *"which
-  school is this user enrolling at, and what's the API base + cert pin?"*
-  Duplicating the directory per-app means double maintenance and a real
-  risk of the two drifting (one app sees a school the other doesn't).
-- **Free, fast, signable.** Cloudflare Pages serves the file from the
-  edge with HTTPS + caching for free. The cross-check against each
-  school's `/.well-known/teacher-codex.json` (or `parent-codex.json`)
-  makes the directory tamper-evident even without signing in v1.
-- **Operations-aligned.** Adding a new school is a one-PR change to a
-  small repo a non-engineer can review; redeploys happen on merge.
+**Schema: v2** (2026-10-16), additive and backward compatible.
 
 ---
 
-## What's in this folder
+## Why one shared directory
+
+- **One file, many apps.** Every Codex app has the same first-screen question:
+  *which school is this user enrolling at, and what is its API base and
+  certificate pin?* A directory per app means double maintenance and a real
+  risk of the two drifting, so that one app sees a school the other does not.
+- **Cheap and fast.** A static file on an edge CDN over HTTPS.
+- **Operations-aligned.** Adding a school is a one-PR change to a small repo
+  that a non-engineer can review. Cloudflare Pages deploys on merge.
+
+---
+
+## What's here
 
 | File | Purpose |
 |---|---|
-| `schools.json` | The directory file every Codex app fetches. One entry per deployed school. |
-| `README.md` (this file) | Schema + the operator runbook for creating the standalone repo + Cloudflare Pages site. |
+| `schools.json` | The directory every Codex app fetches. One entry per deployed school. |
+| `README.md` | This file: the schema and the operator checklist. |
 
 ---
 
-## Operator runbook — bring up the standalone repo
+## `schools.json` schema (v2 — current)
 
-1. **Create the GitHub repo** `<org>/codex-waypoints` (public — the schools
-   list is not sensitive; it just maps display names → API hostnames +
-   cert pins).
-2. **Migrate the artifacts** — copy `schools.json` and a slimmed-down
-   version of this README into the new repo's root.
-3. **Provision Cloudflare Pages** (per the prerequisites task **P.10**):
-   - Connect the new repo to a Pages project named `codex-waypoints`.
-   - Custom domain: pick one (see below).
-   - Build command: none (static).
-   - Output directory: `/` (the repo root).
-4. **Verify** with `curl https://<chosen-host>/schools.json`.
-5. **Adding a new school** (recurring): one PR to the directory repo
-   updates `schools.json`; Cloudflare Pages deploys automatically on
-   merge.
-6. **After verification**: delete the staging copy at
-   `school_codex/codex_waypoints/` from this monorepo, since the
-   standalone repo is now authoritative.
+**v2 is additive and backward compatible, deliberately.** `well_known` and
+`min_app_version` keep their v1 **types** — plain strings — and their teacher
+values. Per-app values live in two new sibling maps that older parsers ignore.
 
-### Hostname decision (deferred)
+```json
+{
+  "version": 2,
+  "generated_at": "ISO 8601 UTC timestamp — when this file was last edited",
+  "schools": [
+    {
+      "school_id": "stable slug, must match the school's own SCHOOL_ID",
+      "name": "human-readable display name",
+      "code": "search alias (often same as school_id)",
+      "api_base": "https://<school-host>/",
 
-D4 in [teacher_codex_app/decisions.md](../teacher_codex_app/decisions.md)
-originally pinned the hostname to `directory.teachercodex.app`. With
-Parent Codex coming, the hostname should be **app-neutral**. Pick one
-when standing up the standalone repo:
+      "well_known": "https://<host>/.well-known/teacher-codex.json",
+      "well_known_by_app": {
+        "teacher": "https://<host>/.well-known/teacher-codex.json",
+        "parent":  "https://<host>/.well-known/parent-codex.json"
+      },
 
-- `directory.codex.app` — short, neutral, matches the umbrella brand.
-- `waypoints.codex.app` — matches the repo name.
-- `directory.codexapps.io` — if `codex.app` isn't owned.
+      "min_app_version": "1.0.0",
+      "min_app_version_by_app": {"teacher": "1.0.0", "parent": "1.0.0"},
 
-Whatever you pick, every Codex app's hardcoded directory URL must match
-it. **Lock this in before the first mobile-app build ships** — changing
-the hostname after release means a forced app update.
+      "apps": ["teacher", "parent"],
+      "cert_pins": ["sha256/<current-leaf>", "sha256/<next-leaf>"],
+      "logo_url": "https://<host>/static/logo.png"
+    }
+  ]
+}
+```
+
+### ⚠️ Keep the flat fields as strings
+
+`well_known` and `min_app_version` **must stay plain strings**. Do not turn
+either into a per-app object, however tidy that looks — a shipped app parses
+them as strings and will not survive the change. Per-app values go in the
+`_by_app` maps, which is what they are for.
+
+Enforced on the client side: the Teacher Codex test suite parses the entry
+below with the shipped parser class and fails if either type changes.
+
+### How a client reads it
+
+Read your own key out of the `_by_app` map and fall back to the flat field.
+Two lines, and it works against v1, v2, and a rollback to v1.
+
+```dart
+final byApp = json['well_known_by_app'] as Map<String, dynamic>?;
+final wellKnown = (byApp?['parent'] as String?) ?? json['well_known'] as String;
+```
+
+`version` is informational. No shipped client reads it; it is a signal to
+operators and future parsers, not a gate.
+
+### Field rules
+
+- **`school_id` is load-bearing.** It must match the school's own configured
+  id and the `school_id` in that school's `/.well-known/<app>-codex.json`.
+  Drift between the two is exactly what the cross-check below detects.
+- **`api_base` and `well_known` must be HTTPS and the same host.** A client
+  refuses the entry otherwise.
+- **`cert_pins` carries both the current and the next pin during a rotation
+  window** (60-day cadence, leaf certificates). A client accepts a connection
+  whose observed leaf matches any pin in the list. Drop the old pin once the
+  window closes.
+- **`min_app_version` is the directory's opinion only.** Each school's server
+  enforces its own minimum from the app's version header and answers `426`.
+  That is the gate that actually stops an old build.
+- **`apps` is advisory.** A client may hide a school it is not listed for, but
+  the school's own `/.well-known/<app>-codex.json` is the authority — a school
+  that does not serve a parent document cannot be onboarded by Parent Codex
+  whatever this array says.
+
+### Cross-check semantics — the integrity guarantee
+
+A Codex app:
+
+1. Downloads `schools.json`.
+2. Lets the user pick a school.
+3. Fetches that school's `well_known` document and verifies its `school_id`,
+   `api_base` and `cert_pins` match the directory entry.
+4. **Refuses onboarding** on any mismatch.
+
+So tampering with a directory entry cannot point an app at someone else's API:
+an attacker would have to control the school's own domain as well. It catches
+typo'd directory PRs for the same reason.
+
+### Not yet signed
+
+v1 and v2 carry no signature; the cross-check above is the whole integrity
+story. Signing is planned as its own change — a detached Ed25519 signature over
+the `schools` array from an offline key, with each app carrying the public key
+and refusing a directory that does not verify. It replaces the cross-check
+rather than supplementing it, which is why it is being done deliberately rather
+than quickly.
 
 ---
 
-## `schools.json` schema (v1)
+## `schools.json` schema (v1 — historical)
+
+v1 is still a valid document and a valid rollback target. It is v2 without the
+two `_by_app` maps and the `apps` array.
 
 ```json
 {
   "version": 1,
-  "generated_at": "ISO 8601 UTC timestamp — when this file was last edited",
+  "generated_at": "ISO 8601 UTC timestamp",
   "schools": [
     {
-      "school_id": "stable slug, must match the school's SCHOOL_ID setting",
+      "school_id": "stable slug",
       "name": "human-readable display name",
-      "code": "search alias (often same as school_id)",
-      "api_base": "https://<school-host>/api/v1/",
+      "code": "search alias",
+      "api_base": "https://<school-host>/",
       "well_known": "https://<school-host>/.well-known/teacher-codex.json",
       "cert_pins": ["sha256/<current-leaf>", "sha256/<next-leaf>"],
       "logo_url": "https://<school-host>/static/logo.png",
@@ -95,65 +157,25 @@ the hostname after release means a forced app update.
 }
 ```
 
-### Field rules
-
-- `school_id` is **load-bearing**. It must match the school's `SCHOOL_ID`
-  Django setting (which appears in the JWT `iss` claim) AND the
-  `school_id` field in that school's `/.well-known/teacher-codex.json`.
-  Drift between the three sources is what cross-checking detects.
-- `well_known` currently points at `teacher-codex.json` because Teacher
-  Codex ships first. **When Parent Codex lands**, schools will publish
-  a sibling `/.well-known/parent-codex.json` with a parallel payload, and
-  this field becomes per-app:
-  ```json
-  "well_known": {
-    "teacher": "https://<host>/.well-known/teacher-codex.json",
-    "parent":  "https://<host>/.well-known/parent-codex.json"
-  }
-  ```
-  Plan the schema bump as `version: 2` and add a migration note before
-  the parent app's first beta.
-- `cert_pins` should always carry **both `current` and `next`** pins
-  during rotation windows (per **D6** — 60-day cadence, leaf certs, both
-  pins live during the rotation window). The mobile app accepts a
-  connection if the observed leaf matches **any** pin in the list.
-- `min_app_version` is currently a single string. When Parent Codex
-  joins, this becomes per-app too:
-  ```json
-  "min_app_version": {"teacher": "1.0.0", "parent": "1.0.0"}
-  ```
-
-### Cross-check semantics (the integrity guarantee for v1)
-
-The mobile app:
-1. Downloads `schools.json`.
-2. Lets the user pick a school.
-3. Fetches `<chosen.well_known>` and verifies its `school_id` + `api_base`
-   match the directory entry.
-4. **Refuses onboarding** if either is mismatched.
-
-This catches both directory tampering (an attacker would have to also
-control the school's domain to forge a matching `.well-known`) and
-typo'd directory PRs.
-
-### v2 — optional Ed25519 signing
-
-Not in scope right now. When v2 lands, an additional `signature` field
-holds a detached signature over the `schools` array, signed by an offline
-Ed25519 key. Each Codex app gains a hard-coded public key and refuses
-any directory whose signature doesn't verify.
+A client reading v1 sees no `well_known_by_app`, so an app other than Teacher
+Codex should treat that school as **not yet available** rather than as an
+error.
 
 ---
 
-## Maintenance checklist
+## Operator checklist
 
-- [ ] **Cert rotation** (every 60 days, per **D6**): when a school renews
-      its TLS cert, open a directory PR with the *new* `next` pin alongside
-      the existing `current` pin. After the rotation window closes, drop
-      the old pin.
-- [ ] **New school onboarding**: one PR adds an entry to `schools` array.
-- [ ] **Bumping `min_app_version`**: after force-upgrade is needed (e.g.
-      breaking API change), bump the per-school `min_app_version` field.
-- [ ] **Adding a new Codex app** (Parent Codex etc.): bump schema to
-      `version: 2`, fan out `well_known` and `min_app_version` into per-app
-      objects, ship the new app's first beta against the v2 directory.
+- [ ] **Adding a school.** One PR adding one entry to the `schools` array.
+      Confirm the school actually serves its `/.well-known/<app>-codex.json`
+      before listing that app in `apps`.
+- [ ] **Certificate rotation**, every 60 days. Open a PR adding the *new* pin
+      alongside the existing one. Remove the old pin after the window closes.
+      Never leave the array empty for a school in production.
+- [ ] **Raising `min_app_version`** after a breaking API change. Remember the
+      school's own server is the enforcing gate; this field is advisory.
+- [x] **Adding a new Codex app** — done for Parent Codex (v2, 2026-10-16). A
+      third app needs no schema change: give it a key in `well_known_by_app`
+      and `min_app_version_by_app`, and add it to each school's `apps` array.
+- [ ] **Changing the hostname.** Don't. Every app has
+      `waypoints.schoolcodex.com` compiled in, so changing it forces an app
+      update through both stores. It is treated as load-bearing.
